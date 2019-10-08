@@ -5,30 +5,6 @@ import numpy as np
 from scipy.linalg import blas
 from feature import *
 
-def test_get_name_counts():
-    test_pair = four_pair_of_domains[0]
-    test_domain = test_pair[0]
-    print('test domain:', test_domain)
-    testfile_loc = osp.join(DATA_DIR, test_domain+'.txt')
-
-    names, name_line_counts = get_name_counts(testfile_loc)
-    print('Top 10 names:')
-    print(names[:10])
-    test_get_name_counts_matrix(names, name_line_counts, testfile_loc)
-
-
-def test_get_name_counts_matrix(names, matrix, file_loc):
-    xx, yy = np.nonzero(matrix)
-    txt_lines = open(file_loc).readlines()
-    for i in range(10):
-        rand_idx = random.choice(range(len(xx)))
-        print('random idx is: ', rand_idx, '/', len(xx))
-        name_idx = xx[rand_idx]
-        print('name is: ', names[name_idx])
-        line_number = yy[rand_idx]
-        print('line number is:', line_number)
-        print('that line text is:', txt_lines[line_number])
-
 
 def test_scipy_sgemm():
     pair_domain = four_pair_of_domains[0]
@@ -63,25 +39,26 @@ def test_scipy_sgemm():
         print()
 
 
-def test_get_features():
+def test_get_train_features():
     pair_domain = four_pair_of_domains[0]
     src_domain, tgt_domain = pair_domain[0], pair_domain[1]
-    vocab, src_names, src_features, tgt_names, tgt_features = get_features(src_domain, tgt_domain)
+    feature_dict = get_train_features(src_domain, tgt_domain)
 
-    print('rand idx:')
-    rand_idx = random.choice(range(len(src_names)))
-    print(rand_idx)
-    print('researcher name:', src_names[rand_idx])
+    src_authors = feature_dict['src_authors']
+    src_features = feature_dict['src_features']
+    vocab_all = feature_dict['vocab_all']
+
+    rand_idx = random.choice(range(len(src_authors)))
+    print('rand idx:', rand_idx)
+    print('researcher name:', src_authors[rand_idx])
 
     X = np.nonzero(src_features[rand_idx, :])
-    vocab_array = np.asarray(vocab)
-    ocurred_words = vocab_array[X]
+    ocurred_words = np.asarray(vocab_all)[X]
     print('his feature words:')
     print(ocurred_words)
-    print('my friend, go look for researcher ', src_names[rand_idx], ' in ', src_domain, '.txt. Check his feature words.')
+    print('my friend, go look for researcher ', src_authors[rand_idx], ' in ', src_domain, '.txt. Check his feature words.')
 
 
 if __name__ == '__main__':
-
-    test_scipy_sgemm()
+    test_get_train_features()
 

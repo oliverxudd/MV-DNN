@@ -14,64 +14,44 @@ domain_names = ['Database', 'Medical Informatics', 'Visualization', 'Data Mining
 four_pair_of_domains = [['Data Mining', 'Theory'], ['Medical Informatics', 'Data Mining'],
                         ['Medical Informatics', 'Data Mining'], ['Visualization', 'Data Mining']]
 
+FIELD_DEMILITER = '\t'
+TITLE_FIELD_IDX = 1
+NAME_INDEX = 2
+YEAR_FILED_IDX = 3
+ABSTRACT_FILED_IDX = 4
+TRAIN_YEAR_UPPERLIMIT = 2000
 
-def get_features(src_domain, tgt_domain):
+
+"""获取训练时间段内，两个域内的作者名单、作者-论文矩阵、论文-作者矩阵、作者-特征矩阵、全部token构成的字典"""
+def get_train_features(src_domain, tgt_domain):
     srcfile_loc = osp.join(DATA_DIR, src_domain+'.txt')
     tgtfile_loc = osp.join(DATA_DIR, tgt_domain+'.txt')
 
-    src_names, src_name_line_count  = get_names_counts(srcfile_loc)
-    tgt_names, tgt_name_line_count  = get_names_counts(tgtfile_loc)
-    common_tokens = get_common_tokens(srcfile_loc, tgtfile_loc)
+    # 首先收集字典，用于生成特征向量
+    vocab_all = create_vocab_all(srcfile_loc, tgtfile_loc)
 
-    src_line_token_count = get_tokens_counts(srcfile_loc, common_tokens)
-    tgt_line_token_count = get_tokens_counts(tgtfile_loc, common_tokens)
+    src_authors, src_author_paper = get_train_author_paper(srcfile_loc)
+    tgt_authors, tgt_author_paper = get_train_author_paper(tgtfile_loc)
 
-    src_features = blas.sgemm(alpha=1.0, a=src_name_line_count, b=src_line_token_count.T, trans_b=True)
-    tgt_features = blas.sgemm(alpha=1.0, a=tgt_name_line_count, b=tgt_line_token_count.T, trans_b=True)
+    src_paper_token = get_train_paper_token(srcfile_loc, vocab_all)
+    tgt_paper_token = get_train_paper_token(tgtfile_loc, vocab_all)
+
+    src_features = blas.sgemm(alpha=1.0, a=src_author_paper, b=src_paper_token.T, trans_b=True)
+    tgt_features = blas.sgemm(alpha=1.0, a=tgt_author_paper, b=tgt_paper_token.T, trans_b=True)
 
     feature_dict = {}
-    feature_dict['src_domain_authors'] = src_names
-    feature_dict['tgt_domain_authors'] = tgt_names
-    feature_dict['src_feature_matrix'] = src_features
-    feature_dict['tgt_feature_matrix'] = tgt_features
-    feature_dict['vocab_tokens'] = common_tokens
-    feature_dict['src_paper_author_matrix'] = src_name_line_count.T
-    feature_dict['tgt_paper_author_matrix'] = tgt_name_line_count.T
+    feature_dict['src_authors'] = src_authors
+    feature_dict['tgt_authors'] = tgt_authors
+    feature_dict['src_paper_author'] = src_author_paper.T
+    feature_dict['tgt_paper_author'] = tgt_author_paper.T
+    feature_dict['src_features'] = src_features
+    feature_dict['tgt_features'] = tgt_features
+    feature_dict['vocab_all'] = vocab_all
 
     return feature_dict
 
 
-def get_names_counts(file_loc):
-    FIELD_DEMILITER = '\t'
-    NAME_INDEX = 2
-    corpus = get_corpus(file_loc, [NAME_INDEX])
-
-    vectorizer = CountVectorizer(lowercase=False, analyzer='word', token_pattern=r"[\w\.\ \-()]*\w+")
-    X = vectorizer.fit_transform(corpus)
-    names = vectorizer.get_feature_names()
-    line_name_counts = X.toarray()
-    name_line_counts = line_name_counts.T
-
-    return (names, name_line_counts)
-
-
-def get_corpus(file_loc, field_inds):
-    FIELD_DEMILITER = '\t'
-    corpus = []
-    with open(file_loc) as f:
-        for line in f:
-            line_content = ''
-            for iter, ind in enumerate(field_inds):
-                field = line.split(FIELD_DEMILITER)[ind]
-                if iter < len(field_inds)-1:
-                    line_content += ' '
-                line_content += field
-            corpus.append(line_content)
-
-    return corpus
-
-
-def get_common_tokens(srcfile, tgtfile):
+def create_vocab_all(srcfile, tgtfile):
     src_tokens = get_tokens(srcfile)
     tgt_tokens = get_tokens(tgtfile)
     common_tokens_duplicate = src_tokens + tgt_tokens
@@ -80,9 +60,7 @@ def get_common_tokens(srcfile, tgtfile):
 
 
 def get_tokens(file_loc):
-    TITLE_FILED_IDX = 1
-    ABSTRACT_FILED_IDX = 4
-    corpus = get_corpus(file_loc, [TITLE_FILED_IDX, ABSTRACT_FILED_IDX])
+    corpus = get_corpus(file_loc, [TITLE_FIELD_IDX, ABSTRACT_FILED_IDX])
 
     vectorizer = CountVectorizer(lowercase=False)
     X = vectorizer.fit_transform(corpus)
@@ -90,13 +68,58 @@ def get_tokens(file_loc):
     return tokens
 
 
-def get_tokens_counts(file_loc, common_tokens):
-    TITLE_FILED_IDX = 1
-    ABSTRACT_FILED_IDX = 4
-    corpus = get_corpus(file_loc, [TITLE_FILED_IDX, ABSTRACT_FILED_IDX])
+def get_train_author_paper(file_loc):
+    corpus = get_corpus(file_loc, [NAME_INDEX])
+    strain_ind, stest_ind = get_train_test_index(file_loc)
+    train_corpus = list(np.array(corpus)[strain_ind])
 
-    vectorizer = CountVectorizer(lowercase=False, vocabulary=common_tokens)
-    X = vectorizer.fit_transform(corpus)
-    line_token_counts = X.toarray()
+    vectorizer = CountVectorizer(lowercase=False, analyzer='word', token_pattern=r"[\w\.\ \-()]*\w+")
+    X = vectorizer.fit_transform(train_corpus)
+    authors = vectorizer.get_feature_names()
+    paper_author = X.toarray()
+    author_paper = paper_author.T
 
-    return line_token_counts
+    return authors, author_paper
+
+
+def get_corpus(file_loc, field_inds):
+    corpus = []
+    lines = open(file_loc).readlines()
+    for line in lines:
+        line_content = ''
+        for i, ind in enumerate(field_inds):
+            field = line.split(FIELD_DEMILITER)[ind]
+            line_content += field
+            if i < len(field_inds)-1:
+                line_content += ' '
+
+        corpus.append(line_content)
+
+    return corpus
+
+
+def get_train_test_index(fileloc):
+    train_ind = []
+    test_ind = []
+    lines = open(fileloc).readlines()
+    for i, line in enumerate(lines):
+        year = int(line.split(FIELD_DEMILITER)[YEAR_FILED_IDX])
+        if  year <= TRAIN_YEAR_UPPERLIMIT:
+            train_ind.append(i)
+        else:
+            test_ind.append(i)
+
+    return train_ind, test_ind
+
+
+def get_train_paper_token(file_loc, vocab_all):
+    corpus = get_corpus(file_loc, [TITLE_FIELD_IDX, ABSTRACT_FILED_IDX])
+    strain_ind, stest_ind = get_train_test_index(file_loc)
+    train_corpus = list(np.array(corpus)[strain_ind])
+
+    vectorizer = CountVectorizer(lowercase=False, vocabulary=vocab_all)
+    X = vectorizer.fit_transform(train_corpus)
+    paper_token = X.toarray()
+
+    return paper_token
+
